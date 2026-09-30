@@ -94,25 +94,31 @@ jobs:
         run: |
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Find APK
+       - name: Find and Prepare APK
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
-          echo "Searching for APK..."
+          echo "Searching for generated APK..."
 
-          find app/build/outputs/apk -type f -name "*.apk" -print
+          APK=$(find . -type f -path "*/build/outputs/apk/*.apk" | head -n 1)
 
-          APK_COUNT=$(find app/build/outputs/apk -type f -name "*.apk" | wc -l)
-
-          if [ "$APK_COUNT" -eq 0 ]; then
+          if [ -z "$APK" ]; then
             echo "ERROR: APK was not generated!"
+            echo "Searching all APK files:"
+            find . -type f -name "*.apk" -print
             exit 1
           fi
 
-          echo "APK successfully generated."
+          echo "APK found:"
+          echo "$APK"
+
+          mkdir -p "$GITHUB_WORKSPACE/final-apk"
+          cp "$APK" "$GITHUB_WORKSPACE/final-apk/AmarOvertime-v1.6-FINAL.apk"
+
+          echo "APK prepared successfully."
 
       - name: Upload Final APK
         uses: actions/upload-artifact@v4
         with:
           name: AmarOvertime-v1.6-FINAL-Theme-Icon
-          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/*.apk
+          path: final-apk/AmarOvertime-v1.6-FINAL.apk
           if-no-files-found: error
