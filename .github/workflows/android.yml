@@ -2,7 +2,8 @@ name: Build Amar Overtime v1.6
 
 on:
   push:
-    branches: ["main"]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -20,31 +21,31 @@ jobs:
 
           if [ ! -f "$ZIP_FILE" ]; then
             echo "ERROR: v1.6 ZIP not found!"
-            echo "Files in repository:"
+            echo "Repository files:"
             ls -lah
             exit 1
           fi
 
-          echo "Using ONLY:"
+          echo "Using v1.6 project:"
           echo "$ZIP_FILE"
 
       - name: Extract v1.6 Project
         run: |
-          rm -rf extracted-project
-          mkdir -p extracted-project
+          rm -rf "$GITHUB_WORKSPACE/extracted-project"
+          mkdir -p "$GITHUB_WORKSPACE/extracted-project"
 
           unzip -q \
-            "AmarOvertime-v1.6-READY-TO-BUILD.zip" \
-            -d extracted-project
+            "$GITHUB_WORKSPACE/AmarOvertime-v1.6-READY-TO-BUILD.zip" \
+            -d "$GITHUB_WORKSPACE/extracted-project"
 
-          echo "Extracted files:"
-          find extracted-project -maxdepth 3 -type f | head -100
+          echo "Project extracted successfully."
 
       - name: Find Android Project
         id: project
         run: |
           PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted-project" \
-            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -type f \
+            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
             -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
@@ -53,7 +54,7 @@ jobs:
             exit 1
           fi
 
-          echo "Android project found:"
+          echo "Android project:"
           echo "$PROJECT_DIR"
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
@@ -78,7 +79,7 @@ jobs:
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
           if [ ! -f gradlew ]; then
-            echo "gradlew not found. Creating wrapper..."
+            echo "gradlew not found. Creating Gradle wrapper..."
             gradle wrapper --gradle-version 8.11
           fi
 
@@ -94,16 +95,16 @@ jobs:
         run: |
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-       - name: Find and Prepare APK
+      - name: Find and Prepare APK
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
-          echo "Searching for generated APK..."
+          echo "Searching for APK..."
 
-          APK=$(find . -type f -path "*/build/outputs/apk/*.apk" | head -n 1)
+          APK=$(find . -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK was not generated!"
-            echo "Searching all APK files:"
+            echo "Searching entire project:"
             find . -type f -name "*.apk" -print
             exit 1
           fi
@@ -112,7 +113,9 @@ jobs:
           echo "$APK"
 
           mkdir -p "$GITHUB_WORKSPACE/final-apk"
-          cp "$APK" "$GITHUB_WORKSPACE/final-apk/AmarOvertime-v1.6-FINAL.apk"
+
+          cp "$APK" \
+            "$GITHUB_WORKSPACE/final-apk/AmarOvertime-v1.6-FINAL.apk"
 
           echo "APK prepared successfully."
 
