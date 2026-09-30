@@ -16,12 +16,16 @@ jobs:
       - name: Extract Android Project
         run: |
           mkdir -p extracted-project
+
           ZIP_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: Project ZIP not found"
             exit 1
           fi
+
+          echo "Found ZIP:"
+          echo "$ZIP_FILE"
 
           unzip -q "$ZIP_FILE" -d extracted-project
 
@@ -37,7 +41,7 @@ jobs:
             exit 1
           fi
 
-          echo "Android project:"
+          echo "Android project found:"
           echo "$PROJECT_DIR"
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
@@ -68,7 +72,7 @@ jobs:
 
           chmod +x gradlew
 
-          echo "Gradle wrapper:"
+          echo "Gradle wrapper ready:"
           ls -la gradlew
           ls -la gradle/wrapper
 
@@ -81,7 +85,7 @@ jobs:
         id: apk
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
-          APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          APK=$(find app/build/outputs/apk/debug -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK not found"
@@ -97,4 +101,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: AmarOvertime-debug-apk
-          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/*.apk
+          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
