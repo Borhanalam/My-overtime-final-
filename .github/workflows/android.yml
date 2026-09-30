@@ -1,9 +1,8 @@
-name: Build Amar Overtime v1.5
+name: Build Amar Overtime v1.6
 
 on:
   push:
-    branches:
-      - main
+    branches: ["main"]
   workflow_dispatch:
 
 jobs:
@@ -12,207 +11,108 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-
-      # 1. Checkout repository
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # 2. Setup Java 17
-      - name: Setup JDK 17
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      # 3. Setup Android SDK
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: ""
-
-      # 4. Find EXACT v1.5 ZIP
-      - name: Find v1.5 Source ZIP
-        id: source
-        shell: bash
+      - name: Check v1.6 ZIP
         run: |
-          set -e
+          ZIP_FILE="$GITHUB_WORKSPACE/AmarOvertime-v1.6-READY-TO-BUILD.zip"
 
-          ZIP="$GITHUB_WORKSPACE/AmarOvertime-v1.5-FINAL-Theme-Icon-Source.zip"
-
-          if [ ! -f "$ZIP" ]; then
-            echo "ERROR: Required ZIP not found:"
-            echo "$ZIP"
-            echo ""
-            echo "ZIP files currently available:"
-            find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -name "*.zip" -print
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "ERROR: v1.6 ZIP not found!"
+            echo "Files in repository:"
+            ls -lah
             exit 1
           fi
 
-          echo "Using EXACT source ZIP:"
-          echo "$ZIP"
+          echo "Using ONLY:"
+          echo "$ZIP_FILE"
 
-          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
-
-      # 5. Extract the exact ZIP
-      - name: Extract v1.5 Source
-        shell: bash
+      - name: Extract v1.6 Project
         run: |
-          set -e
-
-          rm -rf "$GITHUB_WORKSPACE/extracted-project"
-          mkdir -p "$GITHUB_WORKSPACE/extracted-project"
+          rm -rf extracted-project
+          mkdir -p extracted-project
 
           unzip -q \
-            "${{ steps.source.outputs.zip }}" \
-            -d "$GITHUB_WORKSPACE/extracted-project"
+            "AmarOvertime-v1.6-READY-TO-BUILD.zip" \
+            -d extracted-project
 
-          echo "Extracted project:"
-          find "$GITHUB_WORKSPACE/extracted-project" \
-            -maxdepth 2 -type f | sort
+          echo "Extracted files:"
+          find extracted-project -maxdepth 3 -type f | head -100
 
-      # 6. Set project directory
-      - name: Set Android Project Directory
+      - name: Find Android Project
         id: project
-        shell: bash
         run: |
-          set -e
+          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted-project" \
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -print -quit | xargs -r dirname)
 
-          PROJECT_DIR="$GITHUB_WORKSPACE/extracted-project/AmarOvertime-Final"
-
-          if [ ! -f "$PROJECT_DIR/settings.gradle" ]; then
-            echo "ERROR: settings.gradle not found."
-            echo "Expected:"
-            echo "$PROJECT_DIR/settings.gradle"
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: Android project not found!"
+            find "$GITHUB_WORKSPACE/extracted-project" -maxdepth 5 -type f
             exit 1
           fi
 
-          if [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "ERROR: app/build.gradle not found."
-            exit 1
-          fi
-
-          echo "Android project:"
+          echo "Android project found:"
           echo "$PROJECT_DIR"
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-      # 7. Verify NEW Icon and Theme
-      - name: Verify v1.5 Theme and Icon
-        working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
-        run: |
-          set -e
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
 
-          echo "========================================"
-          echo "VERIFYING v1.5 THEME + ICON"
-          echo "========================================"
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
 
-          # New launcher icon
-          test -f app/src/main/res/drawable-nodpi/ic_launcher.png
-
-          # New WebView icon
-          test -f app/src/main/assets/ic_launcher.png
-
-          # Theme files
-          test -f app/src/main/res/values/colors.xml
-          test -f app/src/main/res/values/themes.xml
-          test -f app/src/main/res/values-v31/themes.xml
-
-          # Web UI
-          test -f app/src/main/assets/style.css
-          test -f app/src/main/assets/index.html
-
-          echo ""
-          echo "Launcher icon:"
-          ls -lh app/src/main/res/drawable-nodpi/ic_launcher.png
-
-          echo ""
-          echo "Theme colors:"
-          cat app/src/main/res/values/colors.xml
-
-          echo ""
-          echo "Theme:"
-          cat app/src/main/res/values/themes.xml
-
-          echo ""
-          echo "CSS size:"
-          ls -lh app/src/main/assets/style.css
-
-          echo ""
-          echo "========================================"
-          echo "THEME + ICON VERIFICATION PASSED"
-          echo "========================================"
-
-      # 8. Setup Gradle
-      - name: Setup Gradle 8.11
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11"
 
-      # 9. Prepare Gradle Wrapper
       - name: Prepare Gradle Wrapper
         working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
         run: |
-          set -e
-
           if [ ! -f gradlew ]; then
-            echo "Gradle wrapper not found."
-            echo "Creating Gradle wrapper..."
-
+            echo "gradlew not found. Creating wrapper..."
             gradle wrapper --gradle-version 8.11
           fi
 
           chmod +x gradlew
 
-          echo "Gradle wrapper ready."
-
-      # 10. Clean old build
-      - name: Clean Previous Build
+      - name: Clean Project
         working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
         run: |
           ./gradlew clean --no-daemon
 
-      # 11. Build APK
-      - name: Build v1.5 Debug APK
+      - name: Build Debug APK
         working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
         run: |
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # 12. Verify APK
-      - name: Verify Generated APK
-        id: apk
+      - name: Find APK
         working-directory: ${{ steps.project.outputs.project_dir }}
-        shell: bash
         run: |
-          set -e
+          echo "Searching for APK..."
 
-          APK=$(find app/build/outputs/apk/debug \
-            -type f \
-            -name "*.apk" \
-            -print -quit)
+          find app/build/outputs/apk -type f -name "*.apk" -print
 
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated."
+          APK_COUNT=$(find app/build/outputs/apk -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: APK was not generated!"
             exit 1
           fi
 
-          echo "========================================"
-          echo "APK GENERATED SUCCESSFULLY"
-          echo "========================================"
-          echo "$APK"
-          ls -lh "$APK"
+          echo "APK successfully generated."
 
-          echo "apk=$APK" >> "$GITHUB_OUTPUT"
-
-      # 13. Upload APK
-      - name: Upload v1.5 Theme + Icon APK
+      - name: Upload Final APK
         uses: actions/upload-artifact@v4
         with:
-          name: AmarOvertime-v1.5-FINAL-Theme-Icon
-          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/debug/*.apk
+          name: AmarOvertime-v1.6-FINAL-Theme-Icon
+          path: ${{ steps.project.outputs.project_dir }}/app/build/outputs/apk/*.apk
           if-no-files-found: error
