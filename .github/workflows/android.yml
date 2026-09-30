@@ -16,19 +16,30 @@ jobs:
       - name: Extract Android Project
         run: |
           mkdir -p extracted-project
-          unzip -q *.zip -d extracted-project
+          ZIP_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: Project ZIP not found"
+            exit 1
+          fi
+
+          unzip -q "$ZIP_FILE" -d extracted-project
 
       - name: Find Android Project
         id: project
         run: |
-          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted-project" -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs -r dirname)
+          PROJECT_DIR=$(find "$GITHUB_WORKSPACE/extracted-project" \
+            \( -name settings.gradle -o -name settings.gradle.kts \) \
+            -print -quit | xargs -r dirname)
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "ERROR: Android project not found"
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR"
+          echo "Android project:"
+          echo "$PROJECT_DIR"
+
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
@@ -37,8 +48,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -49,27 +62,35 @@ jobs:
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
           if [ ! -f gradlew ]; then
+            echo "gradlew not found. Creating Gradle Wrapper..."
             gradle wrapper --gradle-version 8.11
           fi
+
           chmod +x gradlew
-          ls -la gradlew gradle/wrapper
+
+          echo "Gradle wrapper:"
+          ls -la gradlew
+          ls -la gradle/wrapper
 
       - name: Build Debug APK
         working-directory: ${{ steps.project.outputs.project_dir }}
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          ./gradlew assembleDebug --stacktrace
 
       - name: Find APK
         id: apk
         working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
-          APK=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK not found"
             exit 1
           fi
 
-          echo "APK=$APK"
+          echo "APK found:"
+          echo "$APK"
+
           echo "apk=$APK" >> "$GITHUB_OUTPUT"
 
       - name: Upload Debug APK
