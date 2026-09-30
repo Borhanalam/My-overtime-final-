@@ -1,4 +1,4 @@
-name: Build Amar Overtime v1.7
+name: Build Amar Overtime v1.8
 
 on:
   push:
@@ -7,101 +7,118 @@ on:
 
 jobs:
   build:
-    name: Build Theme + Icon APK
+    name: Build Reference Theme APK
     runs-on: ubuntu-latest
 
     steps:
 
+      # --------------------------------------------------
+      # 1. Checkout
+      # --------------------------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
 
-      - name: Find AmarOvertime ZIP
-        id: zip
-        shell: bash
-        run: |
-          set -e
-
-          ZIP_FILE="$(find "$GITHUB_WORKSPACE" \
-            -maxdepth 1 \
-            -type f \
-            -iname 'AmarOvertime-*.zip' \
-            -printf '%T@ %p\n' |
-            sort -nr |
-            head -n1 |
-            cut -d' ' -f2-)"
-
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: AmarOvertime ZIP not found!"
-            echo "Repository files:"
-            ls -lah "$GITHUB_WORKSPACE"
-            exit 1
-          fi
-
-          echo "Using ZIP:"
-          ls -lh "$ZIP_FILE"
-
-          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
-
-
-      - name: Extract Android Project
-        run: |
-          set -e
-
-          rm -rf "$GITHUB_WORKSPACE/extracted-project"
-
-          mkdir -p "$GITHUB_WORKSPACE/extracted-project"
-
-          unzip -q \
-            "${{ steps.zip.outputs.zip_file }}" \
-            -d "$GITHUB_WORKSPACE/extracted-project"
-
-          echo "Searching for Android project..."
-
-          find "$GITHUB_WORKSPACE/extracted-project" \
-            -type f \
-            \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-            -print
-
-
-      - name: Find Android Project
+      # --------------------------------------------------
+      # 2. Locate Android Project
+      # --------------------------------------------------
+      - name: Locate Android Project
         id: project
         shell: bash
         run: |
           set -e
 
-          PROJECT_DIR="$(
-            find "$GITHUB_WORKSPACE/extracted-project" \
-              -type f \
-              \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
-              -print -quit |
+          PROJECT_DIR=""
+
+          # First: check if Android project is already in repository root
+          if [ -f "$GITHUB_WORKSPACE/settings.gradle" ] || \
+             [ -f "$GITHUB_WORKSPACE/settings.gradle.kts" ]; then
+
+            PROJECT_DIR="$GITHUB_WORKSPACE"
+
+          else
+
+            # Otherwise find AmarOvertime ZIP
+            ZIP_FILE="$(
+              find "$GITHUB_WORKSPACE" \
+                -maxdepth 1 \
+                -type f \
+                -iname 'AmarOvertime-*.zip' \
+                -printf '%T@ %p\n' |
+              sort -nr |
+              head -n1 |
+              cut -d' ' -f2-
+            )"
+
+            if [ -z "$ZIP_FILE" ]; then
+              echo "ERROR: Android project or AmarOvertime ZIP not found!"
+              echo
+              echo "Repository files:"
+              ls -lah "$GITHUB_WORKSPACE"
+              exit 1
+            fi
+
+            echo "ZIP found:"
+            ls -lh "$ZIP_FILE"
+
+            rm -rf "$GITHUB_WORKSPACE/extracted-project"
+
+            mkdir -p "$GITHUB_WORKSPACE/extracted-project"
+
+            unzip -q "$ZIP_FILE" \
+              -d "$GITHUB_WORKSPACE/extracted-project"
+
+            PROJECT_DIR="$(
+              find "$GITHUB_WORKSPACE/extracted-project" \
+                -type f \
+                \( -name "settings.gradle" -o -name "settings.gradle.kts" \) \
+                -print -quit |
               xargs -r dirname
-          )"
+            )"
+
+          fi
+
+
+          # ------------------------------------------------
+          # Validate project
+          # ------------------------------------------------
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found!"
-
-            find "$GITHUB_WORKSPACE/extracted-project" \
-              -maxdepth 10 \
-              -type f |
-              sort
-
+            echo "ERROR: Android project directory not found!"
             exit 1
           fi
+
 
           if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && \
              [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
 
-            echo "ERROR: app module not found!"
+            echo "ERROR: Android app module not found!"
+            echo "Project directory:"
+            echo "$PROJECT_DIR"
+
+            find "$PROJECT_DIR" \
+              -maxdepth 4 \
+              -type f |
+            sort
+
             exit 1
           fi
 
-          echo "Android project found:"
+
+          echo
+          echo "========================================"
+          echo "Android Project Found"
+          echo "========================================"
           echo "$PROJECT_DIR"
+          echo "========================================"
+
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
 
+      # --------------------------------------------------
+      # 3. JDK 17
+      # --------------------------------------------------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -109,18 +126,27 @@ jobs:
           java-version: "17"
 
 
+      # --------------------------------------------------
+      # 4. Android SDK
+      # --------------------------------------------------
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: ""
+          packages: "platform-tools platforms;android-36 build-tools;36.0.0"
 
 
+      # --------------------------------------------------
+      # 5. Gradle
+      # --------------------------------------------------
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11"
 
 
+      # --------------------------------------------------
+      # 6. Prepare Gradle Wrapper
+      # --------------------------------------------------
       - name: Prepare Gradle Wrapper
         working-directory: ${{ steps.project.outputs.project_dir }}
         shell: bash
@@ -128,32 +154,88 @@ jobs:
           set -e
 
           if [ ! -f gradlew ]; then
+
             echo "Gradle wrapper not found."
             echo "Creating Gradle wrapper..."
 
             gradle wrapper --gradle-version 8.11
+
           fi
 
           chmod +x gradlew
 
+          echo
           echo "Gradle version:"
           ./gradlew --version
 
 
+      # --------------------------------------------------
+      # 7. Verify Theme Assets
+      # --------------------------------------------------
+      - name: Verify Reference Theme Assets
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "Checking required assets..."
+
+          test -f app/src/main/assets/index.html
+          test -f app/src/main/assets/style.css
+          test -f app/src/main/assets/app.js
+          test -f app/src/main/assets/app_icon.png
+
+          echo
+          echo "All required theme assets are present."
+
+          echo
+          echo "Asset sizes:"
+          ls -lh app/src/main/assets/
+
+
+      # --------------------------------------------------
+      # 8. Verify Android Resources
+      # --------------------------------------------------
+      - name: Verify Android Resources
+        working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
+        run: |
+          set -e
+
+          test -f app/src/main/AndroidManifest.xml
+          test -f app/src/main/res/drawable-nodpi/app_icon.png
+          test -f app/src/main/res/values/strings.xml
+          test -f app/src/main/res/values/colors.xml
+          test -f app/src/main/res/values/themes.xml
+
+          echo "Android resources verified."
+
+
+      # --------------------------------------------------
+      # 9. Clean
+      # --------------------------------------------------
       - name: Clean Project
         working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
           ./gradlew clean --no-daemon
 
 
+      # --------------------------------------------------
+      # 10. Build Debug APK
+      # --------------------------------------------------
       - name: Build Debug APK
         working-directory: ${{ steps.project.outputs.project_dir }}
+        shell: bash
         run: |
           ./gradlew assembleDebug \
             --no-daemon \
             --stacktrace
 
 
+      # --------------------------------------------------
+      # 11. Find APK
+      # --------------------------------------------------
       - name: Find APK
         id: apk
         working-directory: ${{ steps.project.outputs.project_dir }}
@@ -168,29 +250,51 @@ jobs:
               -print -quit
           )"
 
+
           if [ -z "$APK_FILE" ]; then
+
             echo "ERROR: APK was not generated!"
 
+            echo
             echo "Build output:"
+            
             find . \
               -type f \
-              \( -name "*.apk" -o -path "*/build/outputs/*" \) \
+              \( \
+                -name "*.apk" \
+                -o \
+                -path "*/build/outputs/*" \
+              \) \
               -print || true
 
             exit 1
+
           fi
 
-          echo "APK found:"
+
+          echo
+          echo "========================================"
+          echo "APK GENERATED SUCCESSFULLY"
+          echo "========================================"
+
           ls -lh "$APK_FILE"
+
+          echo
+          echo "APK:"
+          echo "$APK_FILE"
+
 
           echo "apk_file=$PWD/${APK_FILE#./}" \
             >> "$GITHUB_OUTPUT"
 
 
+      # --------------------------------------------------
+      # 12. Upload APK
+      # --------------------------------------------------
       - name: Upload Final APK
         uses: actions/upload-artifact@v4
         with:
-          name: AmarOvertime-v1.7-THEME-ICON-FINAL
+          name: AmarOvertime-v1.8-REFERENCE-THEME-FINAL
           path: ${{ steps.apk.outputs.apk_file }}
           if-no-files-found: error
           retention-days: 30
